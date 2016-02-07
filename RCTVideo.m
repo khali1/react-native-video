@@ -15,6 +15,8 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
   AVPlayerLayer *_playerLayer;
   AVPlayerViewController *_playerViewController;
   NSURL *_videoURL;
+  
+  AVPlayerItemVideoOutput *_videoOutput;
 
   /* Required to publish events */
   RCTEventDispatcher *_eventDispatcher;
@@ -201,6 +203,7 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
   [self removePlayerTimeObserver];
   [self removePlayerItemObservers];
   _playerItem = [self playerItemForSource:source];
+  _videoOutput = nil; // dereference the old _videoOutput
   [self addPlayerItemObservers];
 
   [_player pause];
@@ -341,6 +344,20 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
 - (float)getCurrentTime
 {
   return _playerItem != NULL ? CMTimeGetSeconds(_playerItem.currentTime) : 0;
+}
+
+- (CVPixelBufferRef) getPixelBuffer
+{
+  if (!_videoOutput) {
+    _videoOutput = [[AVPlayerItemVideoOutput alloc] init];
+    if (_playerItem) [_playerItem addOutput:_videoOutput];
+  }
+  CMTime outputItemTime = _playerItem.currentTime;
+  //if ([_videoOutput hasNewPixelBufferForItemTime:outputItemTime]) {
+  CVPixelBufferRef pixelBuffer = NULL;
+  pixelBuffer = [_videoOutput copyPixelBufferForItemTime:outputItemTime itemTimeForDisplay:NULL];
+  CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+  return pixelBuffer;
 }
 
 - (void)setCurrentTime:(float)currentTime
