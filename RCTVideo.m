@@ -15,8 +15,6 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
   AVPlayerLayer *_playerLayer;
   AVPlayerViewController *_playerViewController;
   NSURL *_videoURL;
-  
-  AVPlayerItemVideoOutput *_videoOutput;
 
   /* Required to publish events */
   RCTEventDispatcher *_eventDispatcher;
@@ -37,6 +35,10 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
   BOOL _paused;
   BOOL _repeat;
   NSString * _resizeMode;
+  
+  /* State kept after third party lib use */
+  AVPlayerItemVideoOutput *_videoOutput;
+  CVPixelBufferRef _pixelBufferRef;
 }
 
 - (instancetype)initWithEventDispatcher:(RCTEventDispatcher *)eventDispatcher
@@ -52,6 +54,7 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
     _lastSeekTime = 0.0f;
     _progressUpdateInterval = 250;
     _controls = NO;
+    _pixelBufferRef = NULL;
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(applicationWillResignActive:)
@@ -202,9 +205,7 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
 {
   [self removePlayerTimeObserver];
   [self removePlayerItemObservers];
-  _playerItem = [self playerItemForSource:source];
-  _videoOutput = nil; // dereference the old _videoOutput
-  [self addPlayerItemObservers];
+  _playerItem = [self playerItemForSource:source];  [self addPlayerItemObservers];
 
   [_player pause];
   [_playerLayer removeFromSuperlayer];
@@ -228,6 +229,11 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
                                                  @"type": [source objectForKey:@"type"],
                                                  @"isNetwork":[NSNumber numberWithBool:(bool)[source objectForKey:@"isNetwork"]]},
                                              @"target": self.reactTag}];
+  
+  
+  // make sure getPixelBuffer will get a new frame
+  _videoOutput = nil;
+  _pixelBufferRef = NULL;
 }
 
 - (AVPlayerItem*)playerItemForSource:(NSDictionary *)source
@@ -344,20 +350,6 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
 - (float)getCurrentTime
 {
   return _playerItem != NULL ? CMTimeGetSeconds(_playerItem.currentTime) : 0;
-}
-
-- (CVPixelBufferRef) getPixelBuffer
-{
-  if (!_videoOutput) {
-    _videoOutput = [[AVPlayerItemVideoOutput alloc] init];
-    if (_playerItem) [_playerItem addOutput:_videoOutput];
-  }
-  CMTime outputItemTime = _playerItem.currentTime;
-  //if ([_videoOutput hasNewPixelBufferForItemTime:outputItemTime]) {
-  CVPixelBufferRef pixelBuffer = NULL;
-  pixelBuffer = [_videoOutput copyPixelBufferForItemTime:outputItemTime itemTimeForDisplay:NULL];
-  CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-  return pixelBuffer;
 }
 
 - (void)setCurrentTime:(float)currentTime
@@ -553,6 +545,31 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
   [[NSNotificationCenter defaultCenter] removeObserver:self];
 
   [super removeFromSuperview];
+}
+
+# pragma third party API
+
+- (CVPixelBufferRef) getPixelBuffer
+{
+  if (!_videoOutput) {
+    _videoOutput = [[AVPlayerItemVideoOutput alloc] init];
+    if (_playerItem) [_playerItem addOutput:_videoOutput];
+  }
+  CMTime outputItemTime = _playerItem.currentTime;
+  if (_pixelBufferRef == NULL || [_videoOutput hasNewPixelBufferForItemTime:outputItemTime]) {
+    if (_pixelBufferRef != NULL) {
+      CVPixelBufferUnlockBaseAddress(_pixelBufferRef, kCVPixelBufferLock_ReadOnly);
+      CVPixelBufferRelease(_pixelBufferRef);
+    }
+    CVPixelBufferRef pixelBuffer = NULL;
+    pixelBuffer = [_videoOutput copyPixelBufferForItemTime:outputItemTime itemTimeForDisplay:NULL];
+    CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    _pixelBufferRef = pixelBuffer;
+    return pixelBuffer;
+  }
+  else {
+    return _pixelBufferRef;
+  }
 }
 
 @end
