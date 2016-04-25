@@ -552,7 +552,14 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
 - (CVPixelBufferRef) getPixelBuffer
 {
   if (!_videoOutput) {
-    _videoOutput = [[AVPlayerItemVideoOutput alloc] init];
+    NSDictionary *pixBuffAttributes = @{(id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32ARGB),
+                                        (id)kCVPixelBufferBytesPerRowAlignmentKey: @(0),
+                                        (id)kCVPixelBufferExtendedPixelsLeftKey: @(0),
+                                        (id)kCVPixelBufferExtendedPixelsRightKey: @(0),
+                                        (id)kCVPixelBufferExtendedPixelsTopKey: @(0),
+                                        (id)kCVPixelBufferExtendedPixelsBottomKey: @(0),
+                                        (id)kCVPixelBufferOpenGLCompatibilityKey: @(YES)};
+    _videoOutput = [[AVPlayerItemVideoOutput alloc] initWithPixelBufferAttributes:pixBuffAttributes];
     if (_playerItem) [_playerItem addOutput:_videoOutput];
   }
   CMTime outputItemTime = _playerItem.currentTime;
@@ -570,6 +577,17 @@ static NSString *const playbackLikelyToKeepUpKeyPath = @"playbackLikelyToKeepUp"
   else {
     return _pixelBufferRef;
   }
+}
+
+- (CGAffineTransform)getPreferredTransform
+{
+  for (AVPlayerItemTrack *track in _playerItem.tracks) {
+    AVAssetTrack *assetTrack = track.assetTrack;
+    if ([assetTrack.mediaType isEqualToString:AVMediaTypeVideo]) {
+      return assetTrack.preferredTransform;
+    }
+  }
+  return CGAffineTransformIdentity;
 }
 
 @end
